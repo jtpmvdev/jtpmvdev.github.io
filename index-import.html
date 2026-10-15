@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Import CSV vers Grist</title>
+  <title>Import CSV vers Grist 3</title>
   <!-- SDK Grist -->
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <!-- Tailwind CSS -->
@@ -164,7 +164,7 @@
           fileName.textContent = file.name;
           fileDetails.textContent = `${csvHeaders.length} colonnes, ${csvRows.length} lignes`;
 
-          // Proposer un nom propre pour la table
+          // Nom de table propre
           const suggestedName = file.name
             .replace(/\.[^/.]+$/, "")
             .replace(/[^a-zA-Z0-9_]/g, "_");
@@ -210,7 +210,7 @@
       setLoading(true);
 
       try {
-        // 1. Préparation de la structure des colonnes
+        // 1. Définition des colonnes
         const columns = csvHeaders.map(header => {
           const colId = header.trim().replace(/[^a-zA-Z0-9_]/g, "_") || "colonne";
           return {
@@ -219,31 +219,29 @@
           };
         });
 
-        // 2. Création de la table via l'API dédiée
-        await grist.docApi.addTable(targetTableId, columns);
+        // 2. Étape 1 : Créer la table dans Grist via applyUserActions
+        await grist.docApi.applyUserActions([
+          ['AddTable', targetTableId, columns]
+        ]);
 
-        // 3. Attente de synchronisation du bac à sable (Sandbox Python)
-        await sleep(1000);
+        // 3. Attente pour laisser le bac à sable (Sandbox Python) rafraîchir son état
+        await sleep(1200);
 
-        // 4. Préparation du format des lignes pour AddRecords
+        // 4. Étape 2 : Préparation des enregistrements
         const colIds = columns.map(c => c.id);
-        const recordData = {};
-
-        colIds.forEach(colId => {
-          recordData[colId] = [];
-        });
-
-        csvRows.forEach(row => {
-          csvHeaders.forEach((header, index) => {
-            const colId = colIds[index];
-            recordData[colId].push(row[header] !== undefined ? String(row[header]) : "");
+        const addRecordActions = csvRows.map(row => {
+          const recordFields = {};
+          csvHeaders.forEach((header, idx) => {
+            const colId = colIds[idx];
+            recordFields[colId] = row[header] !== undefined ? String(row[header]) : "";
           });
+          return ['AddRecord', targetTableId, null, recordFields];
         });
 
         // 5. Envoi des enregistrements par lot
-        await grist.docApi.addRecords(targetTableId, recordData);
+        await grist.docApi.applyUserActions(addRecordActions);
 
-        showStatus(`Table "${targetTableId}" créée et ${csvRows.length} lignes ajoutées avec succès !`, 'success');
+        showStatus(`Table "${targetTableId}" créée et ${csvRows.length} lignes importées avec succès !`, 'success');
         resetForm();
       } catch (err) {
         console.error("Erreur Grist :", err);
