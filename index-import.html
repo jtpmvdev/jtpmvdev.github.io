@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Upload de Fichier Grist</title>
-  <!-- Inclusion du SDK Grist -->
+  <title>Import CSV vers Grist</title>
+  <!-- SDK Grist -->
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
-  <!-- Tailwind CSS pour le style -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PapaParse pour lire les CSV -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -17,7 +19,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       margin: 0;
       padding: 1rem;
     }
@@ -33,42 +35,51 @@
 </head>
 <body class="p-4">
 
-  <div class="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-md w-full text-center relative overflow-hidden">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-md w-full text-center">
     
     <!-- En-tête -->
     <div class="flex items-center justify-center gap-2 mb-1">
-      <span class="text-2xl">📁</span>
-      <h1 class="text-2xl font-bold text-slate-800">Upload de fichier</h1>
+      <span class="text-2xl">📊</span>
+      <h1 class="text-2xl font-bold text-slate-800">Import de fichier CSV</h1>
     </div>
-    <p class="text-sm text-slate-500 mb-6">Glissez-déposez votre fichier ou cliquez pour le sélectionner</p>
+    <p class="text-sm text-slate-500 mb-6">Glissez votre fichier CSV pour créer une nouvelle table</p>
 
-    <!-- Zone de Drag and Drop -->
+    <!-- Zone de Drop -->
     <div 
       id="drop-zone" 
-      class="dashed-border p-8 mb-6 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 hover:bg-slate-50"
+      class="dashed-border p-8 mb-4 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 hover:bg-slate-50"
     >
-      <input type="file" id="file-input" class="hidden" />
+      <input type="file" id="file-input" accept=".csv" class="hidden" />
 
-      <!-- Vue par défaut -->
       <div id="upload-prompt" class="flex flex-col items-center">
         <div class="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-4">
           <i data-lucide="cloud-upload" class="w-8 h-8"></i>
         </div>
-        <p class="text-slate-700 font-medium mb-1">Glissez votre fichier ici</p>
+        <p class="text-slate-700 font-medium mb-1">Glissez votre fichier CSV ici</p>
         <p class="text-sm text-slate-400">ou <span class="text-indigo-600 font-semibold underline">parcourez vos fichiers</span></p>
       </div>
 
-      <!-- Vue quand un fichier est sélectionné -->
       <div id="file-info" class="hidden flex flex-col items-center w-full">
         <div class="w-12 h-12 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2">
-          <i data-lucide="file-text" class="w-6 h-6"></i>
+          <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
         </div>
-        <p id="file-name" class="font-semibold text-slate-700 truncate max-w-full px-2">nom_du_fichier.pdf</p>
-        <p id="file-size" class="text-xs text-slate-400 mt-0.5">0 KB</p>
+        <p id="file-name" class="font-semibold text-slate-700 truncate max-w-full px-2">donnees.csv</p>
+        <p id="file-details" class="text-xs text-slate-400 mt-0.5">0 colonnes, 0 lignes</p>
         <button id="remove-file" type="button" class="mt-3 text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1">
           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Changer de fichier
         </button>
       </div>
+    </div>
+
+    <!-- Nom de la nouvelle table -->
+    <div id="table-name-container" class="hidden text-left mb-6">
+      <label for="table-name" class="block text-xs font-semibold text-slate-600 mb-1">Nom de la nouvelle table :</label>
+      <input 
+        type="text" 
+        id="table-name" 
+        class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+        placeholder="MaNouvelleTable"
+      />
     </div>
 
     <!-- Message de statut -->
@@ -80,132 +91,159 @@
       disabled 
       class="w-full py-3.5 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2"
     >
-      <span id="btn-text">Envoyer le fichier</span>
+      <span id="btn-text">Créer la table</span>
       <i id="btn-spinner" data-lucide="loader-2" class="w-5 h-5 animate-spin hidden"></i>
     </button>
   </div>
 
   <script>
-    // Initialisation des icônes Lucide
     lucide.createIcons();
 
-    // Éléments du DOM
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const uploadPrompt = document.getElementById('upload-prompt');
     const fileInfo = document.getElementById('file-info');
     const fileName = document.getElementById('file-name');
-    const fileSize = document.getElementById('file-size');
+    const fileDetails = document.getElementById('file-details');
     const removeFileBtn = document.getElementById('remove-file');
+    const tableNameInput = document.getElementById('table-name');
+    const tableNameContainer = document.getElementById('table-name-container');
     const submitBtn = document.getElementById('submit-btn');
     const btnText = document.getElementById('btn-text');
     const btnSpinner = document.getElementById('btn-spinner');
     const statusMessage = document.getElementById('status-message');
 
-    let selectedFile = null;
-    let selectedRecordId = null;
+    let csvHeaders = [];
+    let csvRows = [];
 
-    // Initialisation de l'API Grist
-    grist.ready({
-      requiredAccess: 'full', // Nécessaire pour pouvoir uploader/écrire dans la base
-      columns: [{ name: 'AttachmentColumn', title: 'Colonne Piece Jointe', type: 'Any' }]
-    });
+    // Configuration Grist
+    grist.ready({ requiredAccess: 'full' });
 
-    // Écoute de la sélection de ligne dans Grist
-    grist.onRecord((record) => {
-      selectedRecordId = record ? record.id : null;
-    });
-
-    // Gestion du clic pour choisir un fichier
     dropZone.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        handleFile(e.target.files[0]);
-      }
+      if (e.target.files.length > 0) parseCSV(e.target.files[0]);
     });
 
-    // Evénements Drag & Drop
-    ['dragenter', 'dragover'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => {
+    ['dragenter', 'dragover'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
         e.preventDefault();
-        e.stopPropagation();
         dropZone.classList.add('drag-over');
-      }, false);
+      });
     });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => {
+    ['dragleave', 'drop'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
         e.preventDefault();
-        e.stopPropagation();
         dropZone.classList.remove('drag-over');
-      }, false);
+      });
     });
 
     dropZone.addEventListener('drop', (e) => {
-      const dt = e.dataTransfer;
-      const files = dt.files;
-      if (files.length > 0) {
-        handleFile(files[0]);
-      }
+      if (e.dataTransfer.files.length > 0) parseCSV(e.dataTransfer.files[0]);
     });
 
-    // Affichage des informations du fichier
-    function handleFile(file) {
-      selectedFile = file;
-      fileName.textContent = file.name;
-      fileSize.textContent = formatBytes(file.size);
+    // Lecture du CSV
+    function parseCSV(file) {
+      if (!file.name.endsWith('.csv')) {
+        showStatus('Veuillez sélectionner un fichier au format .csv', 'error');
+        return;
+      }
 
-      uploadPrompt.classList.add('hidden');
-      fileInfo.classList.remove('hidden');
-      submitBtn.disabled = false;
-      hideStatus();
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          if (results.data.length === 0) {
+            showStatus('Le fichier CSV est vide.', 'error');
+            return;
+          }
+
+          csvHeaders = results.meta.fields || [];
+          csvRows = results.data;
+
+          fileName.textContent = file.name;
+          fileDetails.textContent = `${csvHeaders.length} colonnes, ${csvRows.length} lignes`;
+
+          // Proposer un nom de table basé sur le fichier
+          const suggestedName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_]/g, "_");
+          tableNameInput.value = suggestedName;
+
+          uploadPrompt.classList.add('hidden');
+          fileInfo.classList.remove('hidden');
+          tableNameContainer.classList.remove('hidden');
+          submitBtn.disabled = false;
+          hideStatus();
+        },
+        error: function(err) {
+          showStatus('Erreur de lecture du CSV : ' + err.message, 'error');
+        }
+      });
     }
 
-    // Retirer le fichier sélectionné
     removeFileBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       resetForm();
     });
 
     function resetForm() {
-      selectedFile = null;
+      csvHeaders = [];
+      csvRows = [];
       fileInput.value = '';
       uploadPrompt.classList.remove('hidden');
       fileInfo.classList.add('hidden');
+      tableNameContainer.classList.add('hidden');
       submitBtn.disabled = true;
     }
 
-    // Envoi du fichier à Grist
+    // Création de la table et import dans Grist
     submitBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
-
-      if (!selectedRecordId) {
-        showStatus('Veuillez sélectionner une ligne dans votre tableau Grist.', 'error');
+      const rawTableName = tableNameInput.value.trim();
+      if (!rawTableName) {
+        showStatus('Veuillez saisir un nom pour la nouvelle table.', 'error');
         return;
       }
 
       setLoading(true);
 
       try {
-        // 1. Upload du fichier comme pièce jointe dans Grist
-        const attachmentIds = await grist.docApi.uploadAttachments([selectedFile]);
-        
-        // 2. Association de la pièce jointe à la ligne sélectionnée
-        // On suppose que la colonne s'appelle 'Fichier' ou la colonne configurée dans le widget
-        const mappings = await grist.setSelectedRows;
-        await grist.docApi.applyUserActions([
-          ['UpdateRecord', grist.getTableId(), selectedRecordId, {
-            // Note: Remplacez 'Fichier' par le nom exact de votre colonne Pièce Jointe dans Grist si besoin
-            Fichier: ['L', ...attachmentIds] 
-          }]
+        // 1. Définition des colonnes pour l'API Grist
+        const columnSpecs = csvHeaders.map(header => ({
+          id: header.trim().replace(/[^a-zA-Z0-9_]/g, "_"),
+          fields: { label: header.trim(), type: 'Text' }
+        }));
+
+        // 2. Création de la nouvelle Table dans le document Grist
+        const response = await grist.docApi.applyUserActions([
+          ['AddTable', rawTableName, columnSpecs]
         ]);
 
-        showStatus('Fichier envoyé avec succès !', 'success');
+        const tableId = rawTableName;
+
+        // 3. Formater les données des lignes pour l'insertion
+        const formattedRecords = csvRows.map(row => {
+          const fields = {};
+          csvHeaders.forEach(header => {
+            const colId = header.trim().replace(/[^a-zA-Z0-9_]/g, "_");
+            fields[colId] = row[header] !== undefined ? row[header] : "";
+          });
+          return fields;
+        });
+
+        // 4. Ajouter les enregistrements dans la table nouvellement créée
+        await grist.docApi.applyUserActions([
+          ['AddRecord', tableId, null, formattedRecords[0]], // Insertion ou par lot
+        ]);
+
+        // Insertion par lot de toutes les lignes
+        const recordsAction = formattedRecords.map(record => ['AddRecord', tableId, null, record]);
+        await grist.docApi.applyUserActions(recordsAction);
+
+        showStatus(`Table "${rawTableName}" créée avec succès (${csvRows.length} lignes importées) !`, 'success');
         resetForm();
       } catch (err) {
-        console.error('Erreur lors de l\'envoi :', err);
-        showStatus('Erreur lors de l\'envoi du fichier : ' + err.message, 'error');
+        console.error("Erreur Grist :", err);
+        showStatus("Erreur lors de la création de la table : " + err.message, "error");
       } finally {
         setLoading(false);
       }
@@ -214,10 +252,10 @@
     function setLoading(isLoading) {
       submitBtn.disabled = isLoading;
       if (isLoading) {
-        btnText.textContent = 'Envoi en cours...';
+        btnText.textContent = 'Importation en cours...';
         btnSpinner.classList.remove('hidden');
       } else {
-        btnText.textContent = 'Envoyer le fichier';
+        btnText.textContent = 'Créer la table';
         btnSpinner.classList.add('hidden');
       }
     }
@@ -234,15 +272,6 @@
 
     function hideStatus() {
       statusMessage.classList.add('hidden');
-    }
-
-    function formatBytes(bytes, decimals = 2) {
-      if (bytes === 0) return '0 Bytes';
-      const k = 1024;
-      const dm = decimals < 0 ? 0 : decimals;
-      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
   </script>
 </body>
