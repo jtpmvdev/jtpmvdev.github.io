@@ -143,7 +143,6 @@
       if (e.dataTransfer.files.length > 0) parseCSV(e.dataTransfer.files[0]);
     });
 
-    // Lecture du CSV
     function parseCSV(file) {
       if (!file.name.endsWith('.csv')) {
         showStatus('Veuillez sélectionner un fichier au format .csv', 'error');
@@ -165,8 +164,11 @@
           fileName.textContent = file.name;
           fileDetails.textContent = `${csvHeaders.length} colonnes, ${csvRows.length} lignes`;
 
-          // Proposer un nom de table basé sur le fichier
-          const suggestedName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_]/g, "_");
+          // Proposer un nom propre pour la table
+          const suggestedName = file.name
+            .replace(/\.[^/.]+$/, "")
+            .replace(/[^a-zA-Z0-9_]/g, "_");
+
           tableNameInput.value = suggestedName;
 
           uploadPrompt.classList.add('hidden');
@@ -196,54 +198,56 @@
       submitBtn.disabled = true;
     }
 
-    // Création de la table et import dans Grist
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
     submitBtn.addEventListener('click', async () => {
-      const rawTableName = tableNameInput.value.trim();
-      if (!rawTableName) {
-        showStatus('Veuillez saisir un nom pour la nouvelle table.', 'error');
+      const targetTableId = tableNameInput.value.trim().replace(/[^a-zA-Z0-9_]/g, "_");
+      if (!targetTableId) {
+        showStatus('Veuillez saisir un nom valide pour la table.', 'error');
         return;
       }
 
       setLoading(true);
 
       try {
-        // 1. Définition des colonnes pour l'API Grist
-        const columnSpecs = csvHeaders.map(header => ({
-          id: header.trim().replace(/[^a-zA-Z0-9_]/g, "_"),
-          fields: { label: header.trim(), type: 'Text' }
-        }));
-
-        // 2. Création de la nouvelle Table dans le document Grist
-        const response = await grist.docApi.applyUserActions([
-          ['AddTable', rawTableName, columnSpecs]
-        ]);
-
-        const tableId = rawTableName;
-
-        // 3. Formater les données des lignes pour l'insertion
-        const formattedRecords = csvRows.map(row => {
-          const fields = {};
-          csvHeaders.forEach(header => {
-            const colId = header.trim().replace(/[^a-zA-Z0-9_]/g, "_");
-            fields[colId] = row[header] !== undefined ? row[header] : "";
-          });
-          return fields;
+        // 1. Préparation de la structure des colonnes
+        const columns = csvHeaders.map(header => {
+          const colId = header.trim().replace(/[^a-zA-Z0-9_]/g, "_") || "colonne";
+          return {
+            id: colId,
+            fields: { label: header.trim(), type: 'Text' }
+          };
         });
 
-        // 4. Ajouter les enregistrements dans la table nouvellement créée
-        await grist.docApi.applyUserActions([
-          ['AddRecord', tableId, null, formattedRecords[0]], // Insertion ou par lot
-        ]);
+        // 2. Création de la table via l'API dédiée
+        await grist.docApi.addTable(targetTableId, columns);
 
-        // Insertion par lot de toutes les lignes
-        const recordsAction = formattedRecords.map(record => ['AddRecord', tableId, null, record]);
-        await grist.docApi.applyUserActions(recordsAction);
+        // 3. Attente de synchronisation du bac à sable (Sandbox Python)
+        await sleep(1000);
 
-        showStatus(`Table "${rawTableName}" créée avec succès (${csvRows.length} lignes importées) !`, 'success');
+        // 4. Préparation du format des lignes pour AddRecords
+        const colIds = columns.map(c => c.id);
+        const recordData = {};
+
+        colIds.forEach(colId => {
+          recordData[colId] = [];
+        });
+
+        csvRows.forEach(row => {
+          csvHeaders.forEach((header, index) => {
+            const colId = colIds[index];
+            recordData[colId].push(row[header] !== undefined ? String(row[header]) : "");
+          });
+        });
+
+        // 5. Envoi des enregistrements par lot
+        await grist.docApi.addRecords(targetTableId, recordData);
+
+        showStatus(`Table "${targetTableId}" créée et ${csvRows.length} lignes ajoutées avec succès !`, 'success');
         resetForm();
       } catch (err) {
         console.error("Erreur Grist :", err);
-        showStatus("Erreur lors de la création de la table : " + err.message, "error");
+        showStatus("Erreur lors de l'import : " + (err.message || err), "error");
       } finally {
         setLoading(false);
       }
@@ -252,7 +256,7 @@
     function setLoading(isLoading) {
       submitBtn.disabled = isLoading;
       if (isLoading) {
-        btnText.textContent = 'Importation en cours...';
+        btnText.textContent = 'Création et import en cours...';
         btnSpinner.classList.remove('hidden');
       } else {
         btnText.textContent = 'Créer la table';
