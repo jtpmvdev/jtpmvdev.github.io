@@ -7,4 +7,3 @@
    - Ajoutez une nouvelle vue de type **Custom Widget**.
    - Dans le panneau de droite (*Widget Options*), réglez l'URL du widget vers votre fichier HTML (ou sélectionnez *Custom URL*).
    - Assurez-vous d'accorder les permissions **Full Access** au widget pour qu'il puisse soumettre des fichiers et mettre à jour vos lignes.
-   - Assurez-vous d'avoir une colonne de type **Attachment (Pièce Jointe)** nommée `Fichier` dans votre table.
