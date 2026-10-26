@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Import de données - Grist</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 16px;
+    background: #f7f8fa;
+    color: #1f2937;
+    font-size: 14px;
+  }
+  h2 { margin: 0 0 8px; font-size: 20px; }
+  .subtitle { color: #6b7280; margin-bottom: 16px; }
+
+  .dropzone {
+    border: 2px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 32px 16px;
+    text-align: center;
+    background: #fff;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: #3b82f6;
+    background: #eff6ff;
+  }
+  .dropzone .icon { font-size: 36px; display: block; margin-bottom: 8px; }
+  .dropzone .hint { color: #6b7280; font-size: 12px; margin-top: 8px; }
+
+  .section {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+  .section h3 { margin: 0 0 12px; font-size: 15px; }
+
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; margin-bottom: 4px; font-weight: 500; }
+  .form-row select,
+  .form-row input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
+  .cols-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .col-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 6px;
+    gap: 8px;
+  }
+  .col-item:hover { background: #f3f4f6; }
+  .col-item input[type="checkbox"] {
+    width: 16px; height: 16px; cursor: pointer;
+  }
+  .col-item label { cursor: pointer; flex: 1; }
+  .col-item .col-type {
+    font-size: 11px;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+  .cols-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .btn-link {
+    background: none;
+    border: none;
+    color: #3b82f6;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  .preview {
+    overflow-x: auto;
+    margin-top: 8px;
+  }
+  table.preview-table {
+    border-collapse: collapse;
+    font-size: 12px;
+    width: 100%;
+  }
+  table.preview-table th,
+  table.preview-table td {
+    border: 1px solid #e5e7eb;
+    padding: 4px 8px;
+    text-align: left;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  table.preview-table th { background: #f9fafb; font-weight: 600; }
+
+  button.primary {
+    width: 100%;
+    padding: 12px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 16px;
+  }
+  button.primary:hover:not(:disabled) { background: #2563eb; }
+  button.primary:disabled { background: #9ca3af; cursor: not-allowed; }
+
+  .status { margin-top: 12px; padding: 10px; border-radius: 8px; font-size: 13px; }
+  .status.info { background: #eff6ff; color: #1e40af; }
+  .status.success { background: #ecfdf5; color: #065f46; }
+  .status.error { background: #fef2f2; color: #991b1b; }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h2>📥 Import de données</h2>
+<p class="subtitle">Importez vos données depuis Excel (.xlsx, .xls), CSV ou JSON</p>
+
+<!-- Zone de dépôt -->
+<div class="dropzone" id="dropzone">
+  <span class="icon">📁</span>
+  <div><strong>Glissez-déposez</strong> votre fichier ici</div>
+  <div>ou cliquez pour parcourir</div>
+  <div class="hint">Formats acceptés : .xlsx, .xls, .csv, .json (max 50 MB)</div>
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.json" class="hidden">
+</div>
+
+<div id="status" class="status info hidden"></div>
+
+<!-- Options CSV -->
+<div class="section hidden" id="csvOptions">
+  <h3>Options CSV</h3>
+  <div class="form-row">
+    <label for="csvSep">Séparateur</label>
+    <select id="csvSep">
+      <option value=",">Virgule (,)</option>
+      <option value=";">Point-virgule (;)</option>
+      <option value="\t">Tabulation</option>
+      <option value="|">Pipe (|)</option>
+    </select>
+  </div>
+</div>
+
+<!-- Choix de la feuille (Excel) -->
+<div class="section hidden" id="sheetOptions">
+  <h3>Feuille Excel</h3>
+  <div class="form-row">
+    <label for="sheetSelect">Choisir la feuille à importer</label>
+    <select id="sheetSelect"></select>
+  </div>
+</div>
+
+<!-- Sélection des colonnes -->
+<div class="section hidden" id="colsSection">
+  <h3>Sélection des colonnes à importer</h3>
+  <div class="cols-actions">
+    <button type="button" class="btn-link" id="selectAll">Tout cocher</button>
+    <button type="button" class="btn-link" id="selectNone">Tout décocher</button>
+  </div>
+  <div class="cols-list" id="colsList"></div>
+
+  <h3 style="margin-top:16px;">Aperçu (5 premières lignes)</h3>
+  <div class="preview" id="preview"></div>
+</div>
+
+<!-- Destination Grist -->
+<div class="section hidden" id="destSection">
+  <h3>Destination</h3>
+  <div class="form-row">
+    <label for="tableName">Nom de la table Grist</label>
+    <input type="text" id="tableName" placeholder="Ex: MaTable">
+  </div>
+</div>
+
+<button class="primary hidden" id="importBtn" disabled>Importer dans Grist</button>
+
+<!-- Bibliothèques externes -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+
+<script>
+/* =========================================================
+   État global
+   ========================================================= */
+let parsedData = { headers: [], rows: [], type: null };
+let workbook = null;
+let selectedSheetName = null;
+let fileName = '';
+let gristReady = false;
+let gristTableId = '';
+
+/* =========================================================
+   Éléments DOM
+   ========================================================= */
+const dropzone       = document.getElementById('dropzone');
+const fileInput      = document.getElementById('fileInput');
+const statusBox      = document.getElementById('status');
+const csvOptions     = document.getElementById('csvOptions');
+const csvSep         = document.getElementById('csvSep');
+const sheetOptions   = document.getElementById('sheetOptions');
+const sheetSelect    = document.getElementById('sheetSelect');
+const colsSection    = document.getElementById('colsSection');
+const colsList       = document.getElementById('colsList');
+const previewBox     = document.getElementById('preview');
+const destSection    = document.getElementById('destSection');
+const tableNameInput = document.getElementById('tableName');
+const importBtn      = document.getElementById('importBtn');
+const selectAllBtn   = document.getElementById('selectAll');
+const selectNoneBtn  = document.getElementById('selectNone');
+
+/* =========================================================
+   Initialisation Grist
+   ========================================================= */
+async function initGrist() {
+  try {
+    if (typeof grist === 'undefined') {
+      showStatus("⚠️ Ce widget doit être utilisé à l'intérieur de Grist.", 'error');
+      return;
+    }
+    await grist.ready({ requiredAccess: 'full' });
+    gristReady = true;
+    try {
+      gristTableId = await grist.selectedTable.getTableId();
+    } catch (_) { gristTableId = ''; }
+    if (gristTableId && !tableNameInput.value) {
+      tableNameInput.value = gristTableId;
+    }
+  } catch (e) {
+    console.warn('Grist non disponible :', e);
+  }
+}
+initGrist();
+
+/* =========================================================
+   Utilitaires
+   ========================================================= */
+function showStatus(msg, type = 'info') {
+  statusBox.textContent = msg;
+  statusBox.className = `status ${type}`;
+  statusBox.classList.remove('hidden');
+}
+function hideStatus() { statusBox.classList.add('hidden'); }
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/* =========================================================
+   Gestion du fichier
+   ========================================================= */
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+});
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+async function handleFile(file) {
+  hideStatus();
+  fileName = file.name;
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  csvOptions.classList.add('hidden');
+  sheetOptions.classList.add('hidden');
+  colsSection.classList.add('hidden');
+  destSection.classList.add('hidden');
+  importBtn.classList.add('hidden');
+  workbook = null;
+  parsedData = { headers: [], rows: [], type: null };
+
+  try {
+    if (ext === 'csv') {
+      const text = await file.text();
+      parseCSV(text);
+    } else if (ext === 'json') {
+      const text = await file.text();
+      parseJSON(text);
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const buf = await file.arrayBuffer();
+      parseExcel(buf);
+    } else {
+      showStatus('Format non supporté.', 'error');
+    }
+  } catch (err) {
+    console.error(err);
+    showStatus('Erreur de lecture : ' + err.message, 'error');
+  }
+}
+
+/* =========================================================
+   Parsing CSV
+   ========================================================= */
+function parseCSV(text, sep) {
+  sep = sep || csvSep.value;
+  if (sep === '\\t') sep = '\t';
+  const rows = [];
+  let cur = [], val = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i + 1] === '"') { val += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { val += c; }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === sep) { cur.push(val); val = ''; }
+      else if (c === '\n') { cur.push(val); rows.push(cur); cur = []; val = ''; }
+      else if (c === '\r') { /* ignore */ }
+      else val += c;
+    }
+  }
+  if (val.length || cur.length) { cur.push(val); rows.push(cur); }
+
+  if (!rows.length) {
+    showStatus('Fichier CSV vide.', 'error');
+    return;
+  }
+  parsedData.type = 'csv';
+  parsedData.headers = rows[0];
+  parsedData.rows = rows.slice(1).filter(r => r.some(v => v !== ''));
+
+  csvOptions.classList.remove('hidden');
+  renderColumns();
+}
+
+csvSep.addEventListener('change', async () => {
+  if (parsedData.type !== 'csv') return;
+  if (fileInput.files.length) {
+    const text = await fileInput.files[0].text();
+    parseCSV(text, csvSep.value);
+  }
+});
+
+/* =========================================================
+   Parsing JSON
+   ========================================================= */
+function parseJSON(text) {
+  let data = JSON.parse(text);
+  if (!Array.isArray(data)) {
+    if (data && typeof data === 'object') data = [data];
+    else throw new Error("Le JSON doit contenir un tableau d'objets.");
+  }
+  if (!data.length) { showStatus('JSON vide.', 'error'); return; }
+
+  const keySet = new Set();
+  data.forEach(o => Object.keys(o || {}).forEach(k => keySet.add(k)));
+  const headers = [...keySet];
+  const rows = data.map(o => headers.map(h => o[h] ?? ''));
+
+  parsedData.type = 'json';
+  parsedData.headers = headers;
+  parsedData.rows = rows;
+
+  renderColumns();
+}
+
+/* =========================================================
+   Parsing Excel
+   ========================================================= */
+function parseExcel(buf) {
+  workbook = XLSX.read(buf, { type: 'array', cellDates: true });
+  const sheets = workbook.SheetNames;
+  parsedData.type = 'xlsx';
+
+  if (sheets.length === 1) {
+    selectedSheetName = sheets[0];
+    sheetOptions.classList.add('hidden');
+    loadSheet();
+  } else {
+    sheetSelect.innerHTML = '';
+    sheets.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      sheetSelect.appendChild(opt);
+    });
+    sheetOptions.classList.remove('hidden');
+    selectedSheetName = sheets[0];
+    loadSheet();
+  }
+}
+
+sheetSelect.addEventListener('change', () => {
+  selectedSheetName = sheetSelect.value;
+  loadSheet();
+});
+
+function loadSheet() {
+  if (!workbook || !selectedSheetName) return;
+  const ws = workbook.Sheets[selectedSheetName];
+  const arr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+  if (!arr.length) {
+    showStatus('Feuille vide.', 'error');
+    return;
+  }
+  parsedData.headers = arr[0].map(h =>
+    h === '' ? `(Colonne ${Math.random().toString(36).slice(2, 6)})` : String(h)
+  );
+  parsedData.rows = arr.slice(1).filter(r => r.some(v => v !== '' && v !== undefined));
+  renderColumns();
+}
+
+/* =========================================================
+   Rendu des colonnes et de l'aperçu
+   ========================================================= */
+function renderColumns() {
+  colsList.innerHTML = '';
+  const { headers } = parsedData;
+
+  headers.forEach((h, i) => {
+    const div = document.createElement('div');
+    div.className = 'col-item';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.colIndex = i;
+    cb.id = `col_${i}`;
+    cb.addEventListener('change', renderPreview);
+
+    const label = document.createElement('label');
+    label.htmlFor = `col_${i}`;
+    label.textContent = h || `(colonne ${i + 1})`;
+
+    const badge = document.createElement('span');
+    badge.className = 'col-type';
+    badge.textContent = detectColumnType(i);
+
+    div.appendChild(cb);
+    div.appendChild(label);
+    div.appendChild(badge);
+    colsList.appendChild(div);
+  });
+
+  colsSection.classList.remove('hidden');
+  destSection.classList.remove('hidden');
+  importBtn.classList.remove('hidden');
+  renderPreview();
+  updateImportButtonState();
+}
+
+function detectColumnType(index) {
+  const sample = parsedData.rows.slice(0, 20).map(r => r[index]).filter(v => v !== '' && v != null);
+  if (!sample.length) return 'vide';
+  if (sample.every(v => !isNaN(Number(v)))) return 'nombre';
+  if (sample.every(v => !isNaN(Date.parse(v)))) return 'date';
+  return 'texte';
+}
+
+function getSelectedIndices() {
+  return [...colsList.querySelectorAll('input[type="checkbox"]')]
+    .filter(cb => cb.checked)
+    .map(cb => parseInt(cb.dataset.colIndex, 10));
+}
+
+function renderPreview() {
+  const selected = getSelectedIndices();
+  const { headers, rows } = parsedData;
+  const previewRows = rows.slice(0, 5);
+
+  if (!selected.length) {
+    previewBox.innerHTML = '<em>Aucune colonne sélectionnée.</em>';
+    return;
+  }
+
+  let html = '<table class="preview-table"><thead><tr>';
+  selected.forEach(i => {
+    html += `<th>${escapeHtml(headers[i] ?? '')}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  previewRows.forEach(r => {
+    html += '<tr>';
+    selected.forEach(i => {
+      const v = r[i];
+      html += `<td title="${escapeHtml(v ?? '')}">${escapeHtml(v ?? '')}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  previewBox.innerHTML = html;
+}
+
+function updateImportButtonState() {
+  const hasCols = getSelectedIndices().length > 0;
+  const hasTable = tableNameInput.value.trim() !== '';
+  importBtn.disabled = !(hasCols && hasTable);
+}
+
+/* =========================================================
+   Actions "Tout cocher / décocher"
+   ========================================================= */
+selectAllBtn.addEventListener('click', () => {
+  colsList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+  renderPreview();
+  updateImportButtonState();
+});
+selectNoneBtn.addEventListener('click', () => {
+  colsList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+  renderPreview();
+  updateImportButtonState();
+});
+
+tableNameInput.addEventListener('input', updateImportButtonState);
+
+/* =========================================================
+   Import dans Grist
+   ========================================================= */
+importBtn.addEventListener('click', async () => {
+  const tableId = tableNameInput.value.trim();
+  const selected = getSelectedIndices();
+
+  if (!gristReady) {
+    showStatus("Grist n'est pas disponible. Ouvrez ce widget depuis Grist.", 'error');
+    return;
+  }
+  if (!selected.length) { showStatus('Sélectionnez au moins une colonne.', 'error'); return; }
+  if (!tableId) { showStatus('Indiquez le nom de la table.', 'error'); return; }
+
+  importBtn.disabled = true;
+  importBtn.textContent = 'Import en cours…';
+  showStatus("Préparation de l'import…", 'info');
+
+  try {
+    // 1) S'assurer que la table et les colonnes existent
+    await ensureTable(tableId);
+
+    // 2) Construire les enregistrements (uniquement les colonnes choisies)
+    const records = parsedData.rows.map(row => {
+      const rec = {};
+      selected.forEach(i => {
+        const key = parsedData.headers[i];
+        let val = row[i];
+        if (val === '' || val === undefined) val = null;
+        else if (typeof val === 'string' && /^\d+(\.\d+)?$/.test(val)) val = Number(val);
+        rec[key] = val;
+      });
+      return rec;
+    });
+
+    // 3) Envoyer par lots
+    const BATCH = 100;
+    let inserted = 0;
+    for (let i = 0; i < records.length; i += BATCH) {
+      const batch = records.slice(i, i + BATCH);
+      await grist.docApi.applyUserActions([
+        ['BulkAddRecord', tableId, new Array(batch.length).fill(null), batch]
+      ]);
+      inserted += batch.length;
+      showStatus(`Import en cours… ${inserted} / ${records.length}`, 'info');
+    }
+
+    showStatus(`✅ ${inserted} enregistrement(s) importé(s) dans "${tableId}".`, 'success');
+    importBtn.textContent = 'Importer dans Grist';
+  } catch (err) {
+    console.error(err);
+    showStatus("Erreur d'import : " + (err.message || err), 'error');
+    importBtn.textContent = 'Importer dans Grist';
+  } finally {
+    importBtn.disabled = false;
+    updateImportButtonState();
+  }
+});
+
+/* =========================================================
+   Création de la table + colonnes via tables système Grist
+   ========================================================= */
+async function ensureTable(tableId) {
+  // 1) Récupérer la liste des tables existantes
+  const tablesInfo = await grist.docApi.fetchTable('_grist_Tables');
+  const tableIds = tablesInfo.tableId || [];
+  const tableExists = tableIds.includes(tableId);
+
+  const selected = getSelectedIndices();
+
+  // 2) Si la table n'existe pas : la créer puis ajouter les colonnes
+  if (!tableExists) {
+    await grist.docApi.applyUserActions([
+      ['AddTable', tableId, []]
+    ]);
+
+    const addActions = selected
+      .map(i => {
+        const name = parsedData.headers[i];
+        if (!name) return null;
+        return ['AddColumn', tableId, name, { type: inferGristType(i) }];
+      })
+      .filter(Boolean);
+
+    if (addActions.length) {
+      await grist.docApi.applyUserActions(addActions);
+    }
+    return;
+  }
+
+  // 3) La table existe : récupérer ses colonnes existantes
+  const columnsInfo = await grist.docApi.fetchTable('_grist_Tables_column');
+  const tableRowId = tablesInfo.id[tableIds.indexOf(tableId)];
+
+  const existingCols = new Set();
+  for (let i = 0; i < columnsInfo.parentId.length; i++) {
+    if (columnsInfo.parentId[i] === tableRowId) {
+      existingCols.add(columnsInfo.colId[i]);
+    }
+  }
+
+  // 4) Ajouter les colonnes manquantes
+  const toAdd = [];
+  selected.forEach(i => {
+    const name = parsedData.headers[i];
+    if (!name || existingCols.has(name)) return;
+    toAdd.push(['AddColumn', tableId, name, { type: inferGristType(i) }]);
+  });
+
+  if (toAdd.length) {
+    await grist.docApi.applyUserActions(toAdd);
+  }
+}
+
+function inferGristType(index) {
+  const sample = parsedData.rows.slice(0, 50).map(r => r[index]).filter(v => v !== '' && v != null);
+  if (!sample.length) return 'Text';
+  if (sample.every(v => !isNaN(Number(v)))) return 'Numeric';
+  if (sample.every(v =>
+    typeof v === 'string' && /\d{1,4}[-/]\d{1,2}[-/]\d{1,4}/.test(v) && !isNaN(Date.parse(v))
+  )) return 'Date';
+  if (sample.every(v => typeof v === 'boolean' || v === 'true' || v === 'false')) return 'Bool';
+  return 'Text';
+}
+</script>
+</body>
+</html>
