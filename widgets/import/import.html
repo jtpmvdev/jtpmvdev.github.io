@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Import Fichier Grist avec Sélection de Colonnes</title>
+  
+  <!-- Intégration de l'API Grist, PapaParse (CSV) et SheetJS (Excel) -->
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 16px;
+      margin: 0;
+      color: #333;
+      background-color: #fff;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 600px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    input[type="file"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #f9f9f9;
+    }
+
+    .columns-selection {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px;
+      background: #fafafa;
+    }
+
+    .columns-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-weight: bold;
+      font-size: 0.85rem;
+    }
+
+    .btn-link {
+      background: none;
+      border: none;
+      color: #0284c7;
+      cursor: pointer;
+      padding: 0;
+      font-size: 0.8rem;
+      text-decoration: underline;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+    }
+
+    .checkbox-item input {
+      cursor: pointer;
+    }
+
+    button.btn-import {
+      padding: 10px 16px;
+      background-color: #16a34a;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button.btn-import:hover {
+      background-color: #15803d;
+    }
+
+    button.btn-import:disabled {
+      background-color: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    #status {
+      font-size: 0.9rem;
+      padding: 8px;
+      border-radius: 4px;
+      display: none;
+    }
+
+    #status.success {
+      background-color: #dcfce7;
+      color: #15803d;
+    }
+
+    #status.error {
+      background-color: #fee2e2;
+      color: #b91c1c;
+    }
+
+    #status.info {
+      background-color: #e0f2fe;
+      color: #0369a1;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="field">
+      <label for="fileInput">Sélectionnez un fichier (CSV ou Excel) :</label>
+      <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" />
+    </div>
+
+    <!-- Zone de sélection des colonnes (affichée après la lecture du fichier) -->
+    <div id="columnsContainer" class="field" style="display: none;">
+      <div class="columns-header">
+        <span>Colonnes à importer :</span>
+        <div>
+          <button type="button" class="btn-link" onclick="selectAllColumns(true)">Tout cocher</button> | 
+          <button type="button" class="btn-link" onclick="selectAllColumns(false)">Tout décocher</button>
+        </div>
+      </div>
+      <div id="columnsList" class="columns-selection"></div>
+    </div>
+
+    <button id="importBtn" class="btn-import" disabled>Importer dans Grist</button>
+
+    <div id="status"></div>
+  </div>
+
+  <script>
+    // Initialisation de l'API Grist
+    grist.ready({ requiredAccess: 'full' });
+
+    let parsedData = []; // Données brutes sous forme de tableau d'objets
+    let availableColumns = []; // Liste des nom de colonnes détectées
+
+    const fileInput = document.getElementById('fileInput');
+    const columnsContainer = document.getElementById('columnsContainer');
+    const columnsList = document.getElementById('columnsList');
+    const importBtn = document.getElementById('importBtn');
+    const statusDiv = document.getElementById('status');
+
+    // Écouteur sur la sélection de fichier
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        resetState();
+        return;
+      }
+
+      showStatus('Analyse du fichier en cours...', 'info');
+
+      const fileName = file.name.toLowerCase();
+      if (fileName.endsWith('.csv')) {
+        parseCSV(file);
+      } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        parseExcel(file);
+      } else {
+        showStatus('Format de fichier non supporté.', 'error');
+      }
+    });
+
+    // Traitement des fichiers CSV
+    function parseCSV(file) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.data && results.data.length > 0) {
+            parsedData = results.data;
+            availableColumns = results.meta.fields || Object.keys(results.data[0]);
+            renderColumnCheckboxes();
+          } else {
+            showStatus('Le fichier CSV est vide ou invalide.', 'error');
+          }
+        },
+        error: (err) => {
+          showStatus('Erreur lors de la lecture du CSV : ' + err.message, 'error');
+        }
+      });
+    }
+
+    // Traitement des fichiers Excel (.xlsx, .xls)
+    function parseExcel(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          parsedData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+          if (parsedData.length > 0) {
+            availableColumns = Object.keys(parsedData[0]);
+            renderColumnCheckboxes();
+          } else {
+            showStatus('La feuille Excel est vide.', 'error');
+          }
+        } catch (err) {
+          showStatus('Erreur lors de la lecture du fichier Excel : ' + err.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // Génération dynamique des cases à cocher
+    function renderColumnCheckboxes() {
+      columnsList.innerHTML = '';
+      
+      availableColumns.forEach((colName) => {
+        const item = document.createElement('label');
+        item.className = 'checkbox-item';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = colName;
+        checkbox.checked = true; // Cohée par défaut
+        checkbox.addEventListener('change', validateImportButton);
+
+        item.appendChild(checkbox);
+        item.appendChild(document.createTextNode(colName));
+        columnsList.appendChild(item);
+      });
+
+      columnsContainer.style.display = 'flex';
+      importBtn.disabled = false;
+      showStatus(`Fichier chargé avec succès (${parsedData.length} lignes). Choisissez les colonnes.`, 'info');
+    }
+
+    // Cocher / Décocher tout
+    function selectAllColumns(select) {
+      const checkboxes = columnsList.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = select);
+      validateImportButton();
+    }
+
+    // Activer ou désactiver le bouton en fonction de la sélection
+    function validateImportButton() {
+      const selected = getSelectedColumns();
+      importBtn.disabled = selected.length === 0;
+    }
+
+    // Récupérer les colonnes cochées
+    function getSelectedColumns() {
+      const checkboxes = columnsList.querySelectorAll('input[type="checkbox"]:checked');
+      return Array.from(checkboxes).map(cb => cb.value);
+    }
+
+    // Action d'importation dans Grist
+    importBtn.addEventListener('click', async () => {
+      const selectedCols = getSelectedColumns();
+
+      if (selectedCols.length === 0) {
+        showStatus('Veuillez sélectionner au moins une colonne à importer.', 'error');
+        return;
+      }
+
+      importBtn.disabled = true;
+      showStatus('Importation en cours dans Grist...', 'info');
+
+      // Filtrer les données pour ne garder que les colonnes sélectionnées
+      const recordsToImport = parsedData.map(row => {
+        const filteredRow = {};
+        selectedCols.forEach(col => {
+          if (row.hasOwnProperty(col)) {
+            filteredRow[col] = row[col];
+          }
+        });
+        return filteredRow;
+      });
+
+      try {
+        // Envoi des enregistrements à la table active dans Grist
+        await grist.selectedTable.addRecords(recordsToImport);
+        showStatus(`Succès ! ${recordsToImport.length} enregistrements ont été ajoutés.`, 'success');
+      } catch (err) {
+        console.error(err);
+        showStatus('Erreur lors de l\'importation dans Grist : ' + err.message, 'error');
+      } finally {
+        importBtn.disabled = false;
+      }
+    });
+
+    function resetState() {
+      parsedData = [];
+      availableColumns = [];
+      columnsList.innerHTML = '';
+      columnsContainer.style.display = 'none';
+      importBtn.disabled = true;
+      statusDiv.style.display = 'none';
+    }
+
+    function showStatus(message, type) {
+      statusDiv.textContent = message;
+      statusDiv.className = type;
+      statusDiv.style.display = 'block';
+    }
+  </script>
+</body>
+</html>
